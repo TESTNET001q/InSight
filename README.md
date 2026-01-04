@@ -6,12 +6,11 @@ A PowerShell GUI tool for Microsoft Intune administrators that provides insights
 
 </div>
 
-<div align="center">
 ## Features
 
 📊 **Device Ownership Analysis**: Analyze device ownership for user groups. See who has zero devices, one device, or multiple devices.
 
-💾 **Configuration Backup**: Export your entire Intune configuration to JSON files. Includes compliance policies, device configurations, settings catalog, scripts, app protection policies, and endpoint security settings.
+💾 **Configuration Backup**: Export your entire Intune configuration to JSON files. 
 
 🎯 **Assignment Tracking**: View policy and app assignments for specific groups. Find orphaned policies that aren't assigned to anyone. Identify empty groups.
 
@@ -19,7 +18,6 @@ A PowerShell GUI tool for Microsoft Intune administrators that provides insights
 
 🔨 **Remediation Scripts**: Browse a library of community remediation scripts ready for deployment.
 
-</div>
 
 ## Installation
 
