@@ -8,7 +8,7 @@
 .NOTES
     Author: Kosta Wadenfalk
     GitHub: https://github.com/MrOlof
-    Version: 1.0.0
+    Version: 1.1.0
 #>
 
 #Requires -Version 5.1
