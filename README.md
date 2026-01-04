@@ -6,6 +6,7 @@ A PowerShell GUI tool for Microsoft Intune administrators that provides insights
 
 </div>
 
+<div align="center">
 ## Features
 
 📊 **Device Ownership Analysis**: Analyze device ownership for user groups. See who has zero devices, one device, or multiple devices.
@@ -17,6 +18,8 @@ A PowerShell GUI tool for Microsoft Intune administrators that provides insights
 📱 **Application Insights**: View all Intune applications with version tracking and export capabilities.
 
 🔨 **Remediation Scripts**: Browse a library of community remediation scripts ready for deployment.
+
+</div>
 
 ## Installation
 
