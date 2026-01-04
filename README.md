@@ -70,6 +70,24 @@ Run the application:
 3. Click Find Orphaned Policies
 4. Review configurations without assignments
 
+## Screenshots
+
+### Main Dashboard
+Sign in screen with Microsoft authentication
+![Dashboard](screenshot-dashboard.png)
+
+### Device Ownership Analysis
+Analyze device ownership for user groups
+![Device Ownership](screenshot-device-ownership.png)
+
+### Configuration Backup
+Export your entire Intune configuration
+![Backup](screenshot-backup.png)
+
+### Assignment Tracking
+View policy and app assignments
+![Assignments](screenshot-assignments.png)
+
 ## Features in Detail
 
 ### Authentication
