@@ -21,8 +21,10 @@
     Author: Kosta Wadenfalk
     GitHub: https://github.com/MrOlof
     Requires: PowerShell 5.1+, Microsoft.Graph module
-    Version: 1.1.0
+    Version: 1.2.0
     Changelog:
+        - v1.2.0: Reorganized backup folder structure to match Intune portal; Added logging for scripts without content
+        - v1.1.1: Fixed Configuration Backup issue with special characters in policy names (colons, slashes, etc.)
         - v1.1.0: Device Ownership Analysis performance optimization and nested groups support
         - v1.0.0: Initial release
 #>
@@ -3069,6 +3071,69 @@ if ($controls['NavBulkOps']) {
 }
 
 #region Backup Functions
+function Get-SafeFileName {
+    <#
+    .SYNOPSIS
+        Sanitizes a string to create a valid Windows filename.
+
+    .DESCRIPTION
+        Removes or replaces invalid Windows filename characters and handles edge cases
+        like empty names or names with only special characters.
+
+    .PARAMETER Name
+        The display name to sanitize.
+
+    .PARAMETER Id
+        The unique identifier to use if the name becomes empty or for uniqueness.
+
+    .PARAMETER MaxLength
+        Maximum length for the sanitized filename (default 200 to leave room for extension).
+
+    .EXAMPLE
+        Get-SafeFileName -Name "Policy: Test" -Id "abc123"
+        Returns: Policy_ Test_abc123
+    #>
+    param(
+        [string]$Name,
+        [string]$Id,
+        [int]$MaxLength = 200
+    )
+
+    # Replace invalid Windows filename characters: \ / : * ? " < > |
+    $sanitized = $Name -replace '[\\/:*?"<>|]', '_'
+
+    # Trim whitespace and dots from ends (Windows doesn't allow trailing dots or spaces)
+    $sanitized = $sanitized.Trim(' ', '.')
+
+    # Remove any control characters
+    $sanitized = $sanitized -replace '[\x00-\x1F\x7F]', ''
+
+    # Check if result is empty or only contains underscores/whitespace
+    if ([string]::IsNullOrWhiteSpace($sanitized) -or $sanitized -match '^[_\s.]+$') {
+        # Use ID only if name is unusable
+        return $Id
+    }
+
+    # Create unique filename: name_id
+    $uniqueName = "${sanitized}_${Id}"
+
+    # Truncate if too long, preserving the ID at the end
+    if ($uniqueName.Length -gt $MaxLength) {
+        $idLength = $Id.Length
+        $availableLength = $MaxLength - $idLength - 1  # -1 for underscore
+        if ($availableLength -gt 0) {
+            $sanitized = $sanitized.Substring(0, [Math]::Min($sanitized.Length, $availableLength))
+            $uniqueName = "${sanitized}_${Id}"
+        }
+        else {
+            # If ID itself is too long, just use truncated ID
+            $uniqueName = $Id.Substring(0, $MaxLength)
+        }
+    }
+
+    return $uniqueName
+}
+
 function Start-IntuneBackup {
     param(
         [string]$BackupPath,
@@ -3111,14 +3176,14 @@ function Start-IntuneBackup {
     $baseUri = "https://graph.microsoft.com/$ApiVersion"
     $operations = @(
         @{ Name = 'Device Compliance Policies'; Uri = "$baseUri/deviceManagement/deviceCompliancePolicies"; Folder = 'Device Compliance Policies'; Category = 'Compliance' }
-        @{ Name = 'Device Configurations'; Uri = "$baseUri/deviceManagement/deviceConfigurations"; Folder = 'Device Configurations'; Category = 'Configurations' }
-        @{ Name = 'Settings Catalog'; Uri = "$baseUri/deviceManagement/configurationPolicies"; Folder = 'Settings Catalog'; Category = 'SettingsCatalog' }
+        @{ Name = 'Device Configurations'; Uri = "$baseUri/deviceManagement/deviceConfigurations"; Folder = 'Device Configuration\Device Configurations'; Category = 'Configurations' }
+        @{ Name = 'Settings Catalog'; Uri = "$baseUri/deviceManagement/configurationPolicies"; Folder = 'Device Configuration\Settings Catalog'; Category = 'SettingsCatalog' }
         @{ Name = 'Device Management Scripts'; Uri = "$baseUri/deviceManagement/deviceManagementScripts"; Folder = 'Device Management Scripts'; Category = 'Scripts' }
         @{ Name = 'Proactive Remediations'; Uri = "$baseUri/deviceManagement/deviceHealthScripts"; Folder = 'Proactive Remediations'; Category = 'Remediations' }
         @{ Name = 'Applications'; Uri = "$baseUri/deviceAppManagement/mobileApps"; Folder = 'Applications'; Category = 'Applications' }
         @{ Name = 'Autopilot Profiles'; Uri = "$baseUri/deviceManagement/windowsAutopilotDeploymentProfiles"; Folder = 'Autopilot Profiles'; Category = 'Autopilot' }
         @{ Name = 'Endpoint Security'; Uri = "$baseUri/deviceManagement/intents"; Folder = 'Endpoint Security'; Category = 'EndpointSecurity' }
-        @{ Name = 'Administrative Templates'; Uri = "$baseUri/deviceManagement/groupPolicyConfigurations"; Folder = 'Administrative Templates'; Category = 'AdminTemplates' }
+        @{ Name = 'Administrative Templates'; Uri = "$baseUri/deviceManagement/groupPolicyConfigurations"; Folder = 'Device Configuration\Administrative Templates'; Category = 'AdminTemplates' }
     )
 
     # Filter operations based on selected categories
@@ -3182,8 +3247,10 @@ function Start-IntuneBackup {
                 }
 
                 foreach ($item in $filteredItems) {
-                    $itemName = $item.displayName -replace '[\\/:*?"<>|]', '_'
                     $itemId = $item.id
+                    # Settings Catalog uses 'name' property, Device Management Scripts use 'displayName' or 'fileName'
+                    $policyName = if ($item.displayName) { $item.displayName } elseif ($item.name) { $item.name } elseif ($item.fileName) { $item.fileName } else { "Unknown" }
+                    $itemName = Get-SafeFileName -Name $policyName -Id $itemId
                     $fileName = "${itemName}.json"
                     $filePath = Join-Path -Path $opFolder -ChildPath $fileName
 
@@ -3215,15 +3282,20 @@ function Start-IntuneBackup {
                     $totalFiles++
 
                     # Extract script content for Device Management Scripts
-                    if ($op.Name -eq 'Device Management Scripts' -and $item.scriptContent) {
-                        try {
-                            $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($item.scriptContent))
-                            $scriptFilePath = Join-Path -Path $scriptContentFolder -ChildPath "${itemName}.ps1"
-                            $scriptContent | Out-File -FilePath $scriptFilePath -Encoding UTF8
-                            $totalFiles++
+                    if ($op.Name -eq 'Device Management Scripts') {
+                        if ($item.scriptContent) {
+                            try {
+                                $scriptContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($item.scriptContent))
+                                $scriptFilePath = Join-Path -Path $scriptContentFolder -ChildPath "${itemName}.ps1"
+                                $scriptContent | Out-File -FilePath $scriptFilePath -Encoding UTF8
+                                $totalFiles++
+                            }
+                            catch {
+                                Write-LogError -Message "Failed to extract script content for $($item.displayName): $($_.Exception.Message)" -Source 'Backup'
+                            }
                         }
-                        catch {
-                            Write-LogError -Message "Failed to extract script content for $($item.displayName): $($_.Exception.Message)" -Source 'Backup'
+                        else {
+                            Write-LogWarning -Message "Script content not available for '$($item.displayName)' (ID: $itemId)" -Source 'Backup'
                         }
                     }
 
@@ -3240,6 +3312,9 @@ function Start-IntuneBackup {
                                 Write-LogError -Message "Failed to extract detection script for $($item.displayName): $($_.Exception.Message)" -Source 'Backup'
                             }
                         }
+                        else {
+                            Write-LogWarning -Message "Detection script content not available for '$($item.displayName)' (ID: $itemId)" -Source 'Backup'
+                        }
 
                         if ($item.remediationScriptContent) {
                             try {
@@ -3251,6 +3326,9 @@ function Start-IntuneBackup {
                             catch {
                                 Write-LogError -Message "Failed to extract remediation script for $($item.displayName): $($_.Exception.Message)" -Source 'Backup'
                             }
+                        }
+                        else {
+                            Write-LogWarning -Message "Remediation script content not available for '$($item.displayName)' (ID: $itemId)" -Source 'Backup'
                         }
                     }
                 }
