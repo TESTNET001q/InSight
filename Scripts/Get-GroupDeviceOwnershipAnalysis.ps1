@@ -12,17 +12,28 @@
 .PARAMETER GroupId
     The GUID of the Entra ID user group to analyze.
 
+.PARAMETER IncludeNestedGroups
+    If specified, includes members from nested groups (transitive membership).
+    Default is $false (direct members only).
+
 .EXAMPLE
     Get-GroupDeviceOwnershipAnalysis -GroupId "12345678-1234-1234-1234-123456789012"
+
+.EXAMPLE
+    Get-GroupDeviceOwnershipAnalysis -GroupId "12345678-1234-1234-1234-123456789012" -IncludeNestedGroups
+    Analyzes device ownership including all nested group members.
 
 .NOTES
     Author: Kosta Wadenfalk
     GitHub: https://github.com/MrOlof
-    Version: 1.0.0
+    Version: 1.2.0
     Required Permissions:
         - DeviceManagementManagedDevices.Read.All
         - GroupMember.Read.All
         - User.Read.All
+    Changelog:
+        - v1.2.0: Added support for nested groups via -IncludeNestedGroups switch
+        - v1.1.0: Major performance optimization using hash lookup instead of per-user API calls
 #>
 
 #Requires -Version 5.1
@@ -31,14 +42,17 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')]
-    [string]$GroupId
+    [string]$GroupId,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeNestedGroups
 )
 
 # Script metadata - used for registration with the GUI
 $script:ScriptInfo = @{
     Name                = 'Device Ownership Analysis'
-    Description         = 'Analyzes device ownership for members of an Entra ID group (read-only)'
-    Version             = '1.0.0'
+    Description         = 'Analyzes device ownership for members of an Entra ID group (supports nested groups)'
+    Version             = '1.2.0'
     Author              = 'IntuneAdmin Tool'
     Category            = 'Reports'
     RequiredPermissions = @(
@@ -74,37 +88,53 @@ function Get-AllGroupMembers {
     <#
     .SYNOPSIS
         Gets all members of a group with pagination support.
+    .PARAMETER GroupId
+        The GUID of the group to query.
+    .PARAMETER IncludeNested
+        If specified, uses transitiveMembers endpoint to include nested group members.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$GroupId
+        [string]$GroupId,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$IncludeNested
     )
 
     $allMembers = [System.Collections.ArrayList]::new()
-    $uri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id,userPrincipalName,displayName,mail"
+
+    # Use transitiveMembers for nested groups, otherwise use members for direct only
+    $endpoint = if ($IncludeNested) { "transitiveMembers" } else { "members" }
+    $uri = "https://graph.microsoft.com/v1.0/groups/$GroupId/$endpoint`?`$select=id,userPrincipalName,displayName,mail"
 
     try {
+        $membershipType = if ($IncludeNested) { "transitive (nested)" } else { "direct" }
+        Write-LogInfo -Message "Fetching $membershipType group members..." -Source 'DeviceOwnership'
+
         while ($uri) {
-            Write-LogInfo -Message "Fetching group members from: $uri" -Source 'DeviceOwnership'
             $response = Invoke-GraphRequest -Uri $uri -Method GET
 
             if ($response.value) {
-                # Filter to only user objects (exclude devices, service principals, etc.)
+                # Filter to only user objects (exclude devices, service principals, groups, etc.)
                 $users = $response.value | Where-Object {
                     $_.'@odata.type' -eq '#microsoft.graph.user' -or
                     $null -ne $_.userPrincipalName
                 }
                 foreach ($user in $users) {
-                    [void]$allMembers.Add($user)
+                    # Deduplicate users (transitive members may return duplicates)
+                    if (-not ($allMembers | Where-Object { $_.id -eq $user.id })) {
+                        [void]$allMembers.Add($user)
+                    }
                 }
-                Write-LogInfo -Message "Retrieved $($users.Count) users, total so far: $($allMembers.Count)" -Source 'DeviceOwnership'
+                Write-LogInfo -Message "Retrieved $($users.Count) users (batch), total unique: $($allMembers.Count)" -Source 'DeviceOwnership'
             }
 
             # Handle pagination
             $uri = $response.'@odata.nextLink'
         }
 
+        Write-LogInfo -Message "Total unique $membershipType members: $($allMembers.Count)" -Source 'DeviceOwnership'
         return $allMembers
     }
     catch {
@@ -113,21 +143,26 @@ function Get-AllGroupMembers {
     }
 }
 
-function Get-UserManagedDevices {
+function Get-AllManagedDevicesWithUserIndex {
     <#
     .SYNOPSIS
-        Gets all Intune managed devices for a specific user.
+        Gets all Intune managed devices and indexes them by userId for fast lookup.
+    .DESCRIPTION
+        Fetches all devices in one API call (with pagination) and builds a hashtable
+        indexed by userId. This is MUCH faster than calling per-user endpoints.
+    .OUTPUTS
+        Hashtable where keys are userIds and values are ArrayList of device objects
     #>
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$UserId
-    )
-
-    $allDevices = [System.Collections.ArrayList]::new()
-    $uri = "https://graph.microsoft.com/v1.0/users/$UserId/managedDevices?`$select=id,deviceName,operatingSystem,model,manufacturer,serialNumber,lastSyncDateTime"
+    param()
 
     try {
+        Write-LogInfo -Message "Fetching ALL managed devices from tenant (optimized single call)..." -Source 'DeviceOwnership'
+
+        $allDevices = [System.Collections.ArrayList]::new()
+        $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$select=id,deviceName,operatingSystem,model,manufacturer,serialNumber,lastSyncDateTime,userId"
+
+        # Fetch all devices with pagination
         while ($uri) {
             $response = Invoke-GraphRequest -Uri $uri -Method GET
 
@@ -135,22 +170,32 @@ function Get-UserManagedDevices {
                 foreach ($device in $response.value) {
                     [void]$allDevices.Add($device)
                 }
+                Write-LogInfo -Message "Retrieved $($response.value.Count) devices, total so far: $($allDevices.Count)" -Source 'DeviceOwnership'
             }
 
             # Handle pagination
             $uri = $response.'@odata.nextLink'
         }
 
-        return $allDevices
+        Write-LogInfo -Message "Total devices retrieved: $($allDevices.Count). Building userId index..." -Source 'DeviceOwnership'
+
+        # Build hashtable indexed by userId for O(1) lookups
+        $devicesByUser = @{}
+        foreach ($device in $allDevices) {
+            if ($device.userId) {
+                if (-not $devicesByUser.ContainsKey($device.userId)) {
+                    $devicesByUser[$device.userId] = [System.Collections.ArrayList]::new()
+                }
+                [void]$devicesByUser[$device.userId].Add($device)
+            }
+        }
+
+        Write-LogInfo -Message "Index built. Mapped devices to $($devicesByUser.Count) unique users" -Source 'DeviceOwnership'
+        return $devicesByUser
     }
     catch {
-        # User might not have any devices or might be unlicensed for Intune
-        if ($_.Exception.Message -match 'does not have intune license|not found|404') {
-            Write-LogInfo -Message "User $UserId has no Intune license or no devices" -Source 'DeviceOwnership'
-            return @()
-        }
-        Write-LogError -Message "Failed to get devices for user $UserId`: $($_.Exception.Message)" -Source 'DeviceOwnership'
-        return @()
+        Write-LogError -Message "Failed to get managed devices: $($_.Exception.Message)" -Source 'DeviceOwnership'
+        throw
     }
 }
 #endregion
@@ -167,20 +212,22 @@ try {
     $processedCount = 0
     $errorCount = 0
 
-    # Get all group members
+    # Get all group members (direct or transitive based on parameter)
     Write-LogInfo -Message "Fetching group members..." -Source 'DeviceOwnership'
-    $groupMembers = Get-AllGroupMembers -GroupId $GroupId
+    $groupMembers = Get-AllGroupMembers -GroupId $GroupId -IncludeNested:$IncludeNestedGroups
 
     if (-not $groupMembers -or $groupMembers.Count -eq 0) {
         Write-LogInfo -Message "No user members found in group" -Source 'DeviceOwnership'
 
         return [PSCustomObject]@{
-            Success               = $true
-            Message               = "No user members found in group"
-            UsersWithNoDevices    = @()
+            Success                  = $true
+            Message                  = "No user members found in group"
+            GroupId                  = $GroupId
+            IncludeNestedGroups      = $IncludeNestedGroups.IsPresent
+            UsersWithNoDevices       = @()
             UsersWithMultipleDevices = @()
-            UsersWithSingleDevice = @()
-            Summary               = [PSCustomObject]@{
+            UsersWithSingleDevice    = @()
+            Summary                  = [PSCustomObject]@{
                 TotalUsers            = 0
                 TotalDevices          = 0
                 UsersWithNoDevices    = 0
@@ -189,21 +236,28 @@ try {
                 ProcessedSuccessfully = 0
                 ProcessingErrors      = 0
             }
-            Timestamp             = Get-Date
+            Timestamp                = Get-Date
         }
     }
 
     Write-LogInfo -Message "Found $($groupMembers.Count) user members in group, analyzing device ownership..." -Source 'DeviceOwnership'
 
-    # Process each user
+    # OPTIMIZATION: Fetch ALL devices once and build userId index
+    $devicesByUser = Get-AllManagedDevicesWithUserIndex
+
+    # Process each user (NO API calls in this loop!)
     foreach ($user in $groupMembers) {
         $processedCount++
 
         try {
             Write-LogInfo -Message "Processing user $processedCount/$($groupMembers.Count): $($user.userPrincipalName)" -Source 'DeviceOwnership'
 
-            # Get user's managed devices
-            $userDevices = Get-UserManagedDevices -UserId $user.id
+            # Get user's managed devices via O(1) hash lookup (no API call!)
+            $userDevices = if ($devicesByUser.ContainsKey($user.id)) {
+                $devicesByUser[$user.id]
+            } else {
+                @()
+            }
             $deviceCount = @($userDevices).Count
             $totalDeviceCount += $deviceCount
 
@@ -274,6 +328,7 @@ try {
         Success                  = $true
         Message                  = "Device ownership analysis completed successfully"
         GroupId                  = $GroupId
+        IncludeNestedGroups      = $IncludeNestedGroups.IsPresent
         UsersWithNoDevices       = @($usersNoDevices)
         UsersWithMultipleDevices = @($usersMultipleDevices)
         UsersWithSingleDevice    = @($usersSingleDevice)
@@ -290,6 +345,7 @@ catch {
         Success                  = $false
         Message                  = $_.Exception.Message
         GroupId                  = $GroupId
+        IncludeNestedGroups      = $IncludeNestedGroups.IsPresent
         UsersWithNoDevices       = @()
         UsersWithMultipleDevices = @()
         UsersWithSingleDevice    = @()

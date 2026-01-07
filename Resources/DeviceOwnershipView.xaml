@@ -29,6 +29,13 @@
                     <Button x:Name="AnalyzeOwnershipButton" Grid.Column="2" Content="2. Analyze Devices" Style="{StaticResource SecondaryButtonStyle}" Padding="16,10" IsEnabled="False"/>
                 </Grid>
 
+                <!-- Include Nested Groups Option -->
+                <CheckBox x:Name="IncludeNestedGroupsCheckBox" Content="Include nested groups (transitive membership)" Margin="0,12,0,0" FontSize="{DynamicResource FontSizeNormal}" Foreground="{DynamicResource TextSecondaryBrush}" VerticalContentAlignment="Center">
+                    <CheckBox.ToolTip>
+                        <ToolTip Content="When enabled, analyzes members from nested child groups in addition to direct group members" FontSize="{DynamicResource FontSizeSmall}"/>
+                    </CheckBox.ToolTip>
+                </CheckBox>
+
                 <!-- Loading Indicator -->
                 <TextBlock x:Name="OwnershipLoadingText" Text="Analyzing device ownership..." FontSize="{DynamicResource FontSizeNormal}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,20,0,0" Visibility="Collapsed"/>
 

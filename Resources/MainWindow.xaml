@@ -622,6 +622,11 @@
                                         <TextBox x:Name="OwnershipGroupSearchBox" Grid.Column="0" Style="{StaticResource ModernTextBoxStyle}" Padding="12,10" Foreground="{DynamicResource TextTertiaryBrush}" Text="Enter group display name..."/>
                                         <Button x:Name="AnalyzeOwnershipButton" Grid.Column="2" Content="2. Analyze Devices" Style="{StaticResource SecondaryButtonStyle}" Padding="16,10" IsEnabled="False"/>
                                     </Grid>
+                                    <CheckBox x:Name="IncludeNestedGroupsCheckBox" Content="Include nested groups (transitive membership)" Margin="0,12,0,0" FontSize="{DynamicResource FontSizeNormal}" Foreground="{DynamicResource TextSecondaryBrush}" VerticalContentAlignment="Center">
+                                        <CheckBox.ToolTip>
+                                            <ToolTip Content="When enabled, analyzes members from nested child groups in addition to direct group members" FontSize="{DynamicResource FontSizeSmall}"/>
+                                        </CheckBox.ToolTip>
+                                    </CheckBox>
                                     <TextBlock x:Name="OwnershipLoadingText" Text="Analyzing device ownership..." FontSize="{DynamicResource FontSizeNormal}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,20,0,0" Visibility="Collapsed"/>
                                     <Grid x:Name="OwnershipSummaryCards" Margin="0,20,0,0" Visibility="Collapsed">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
