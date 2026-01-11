@@ -24,7 +24,7 @@ https://mrolof.dev/blog/insight-intune-gui
 
 🔗 **Nested Groups Support**: Device ownership analysis now recursively processes nested Entra ID groups
 
-💾 **Save Remediation Scripts**: Export scripts directly to disk for version control and automation workflows
+💾 **Save Remediation Scripts**: Export scripts directly to disk for easy upload
 
 ## Features
 
