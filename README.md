@@ -44,23 +44,27 @@ https://mrolof.dev/blog/insight-intune-gui
 ## Screenshots
 
 ### Main 
-<img width="1612" height="1212" alt="image" src="https://github.com/user-attachments/assets/c701aff6-a5a7-454f-9477-55b092089a77" />
+<img width="1515" height="1282" alt="image" src="https://github.com/user-attachments/assets/799303b5-b353-4030-add7-48f75b56f658" />
 
 ### Device Ownership 
 Analyze device ownership for user groups
 <img width="1504" height="928" alt="image" src="https://github.com/user-attachments/assets/1cf922a2-5556-40b5-a51e-3c43f365a9ce" />
 
-### Configuration Backup
-Export your entire Intune configuration
-<img width="1566" height="1123" alt="image" src="https://github.com/user-attachments/assets/2e3cc0e6-6165-4dfe-a471-0e95f7c40d1c" />
-
 ### Assignment Tracking
 View policy and app assignments
 <img width="1605" height="1212" alt="image" src="https://github.com/user-attachments/assets/7e53e46d-078e-4110-8915-d30c13d7c717" />
 
+### Reports
+Generate comprehensive HTML reports 
+<img width="1510" height="1285" alt="image" src="https://github.com/user-attachments/assets/22c836a4-5cf9-4894-a1a1-8da828864fe7" />
+
 ### Applications
 View updates for applications and possible MSstore availability 
 <img width="1605" height="1219" alt="image" src="https://github.com/user-attachments/assets/940d24bb-86da-4c0f-9a65-d9d5b0d08ef3" />
+
+### Configuration Backup
+Export your entire Intune configuration
+<img width="1566" height="1123" alt="image" src="https://github.com/user-attachments/assets/2e3cc0e6-6165-4dfe-a471-0e95f7c40d1c" />
 
 
 ## Installation
